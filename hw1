@@ -1,0 +1,29 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+
+TICKER = "2330.TW"
+START_DATE = "2024-01-01"
+END_DATE   = "2025-09-17"
+
+try:
+    data = yf.download(TICKER, start=START_DATE, end=END_DATE)
+    if data.empty:
+        print(f"錯誤：無法取得 {TICKER} 的股價資料。")
+    else:
+        data["MA20"] = data["Close"].rolling(window=20).mean()
+        print(data.head())
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(data.index, data["Close"], label="Close")
+        plt.plot(data.index, data["MA20"], label="MA20", color="orange")
+        plt.title(f"{TICKER} Close & MA20")
+        plt.xlabel("Date")
+        plt.ylabel("Price (TWD)")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig("2330_ma20.png")   # 存圖
+        print("已輸出圖檔：2330_ma20.png")
+except Exception as e:
+    print("發生錯誤：", e)
