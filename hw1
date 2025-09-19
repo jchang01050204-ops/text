@@ -1,29 +1,114 @@
+# hw1.py
+# --------------------------------------------------------
+# 抓取台股歷史資料，計算 MA20、布林通道(20,2)
+# 與 MACD(12,26,9)，並輸出三張圖：
+# 1) 收盤價 + MA20 + 布林通道
+# 2) MACD 走勢（含 DIF、DEA、柱狀圖）
+# 3) 收盤價 + MA20 + 布林通道 + MACD（上下兩區域）
+# --------------------------------------------------------
+
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 
-TICKER = "2330.TW"
+# ===== 參數 =====
+TICKER = "2330.TW"          # 台積電
 START_DATE = "2024-01-01"
 END_DATE   = "2025-09-17"
 
+# ===== 下載資料 =====
 try:
-    data = yf.download(TICKER, start=START_DATE, end=END_DATE)
+    data = yf.download(TICKER, start=START_DATE, end=END_DATE, auto_adjust=False)
     if data.empty:
-        print(f"錯誤：無法取得 {TICKER} 的股價資料。")
-    else:
-        data["MA20"] = data["Close"].rolling(window=20).mean()
-        print(data.head())
+        raise ValueError(f"無法取得 {TICKER} 的股價資料。")
 
-        plt.figure(figsize=(12, 6))
-        plt.plot(data.index, data["Close"], label="Close")
-        plt.plot(data.index, data["MA20"], label="MA20", color="orange")
-        plt.title(f"{TICKER} Close & MA20")
-        plt.xlabel("Date")
-        plt.ylabel("Price (TWD)")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig("2330_ma20.png")   # 存圖
-        print("已輸出圖檔：2330_ma20.png")
+    # ===== 指標計算 =====
+    # MA20
+    data["MA20"] = data["Close"].rolling(window=20, min_periods=1).mean()
+
+    # 布林通道 (20, 2)
+    ma = data["Close"].rolling(window=20, min_periods=20).mean()
+    std = data["Close"].rolling(window=20, min_periods=20).std()
+    data["BB_MID"] = ma
+    data["BB_UPPER"] = ma + 2 * std
+    data["BB_LOWER"] = ma - 2 * std
+
+    # MACD (12,26,9) － 以 EMA 計算
+    ema12 = data["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = data["Close"].ewm(span=26, adjust=False).mean()
+    data["MACD_DIF"] = ema12 - ema26                # DIF
+    data["MACD_DEA"] = data["MACD_DIF"].ewm(span=9, adjust=False).mean()  # DEA/Signal
+    data["MACD_HIST"] = (data["MACD_DIF"] - data["MACD_DEA"]) * 2         # 常見倍數做視覺放大
+
+    print("處理完成，前五列：")
+    print(data[["Close", "MA20", "BB_MID", "BB_UPPER", "BB_LOWER", "MACD_DIF", "MACD_DEA", "MACD_HIST"]].head())
+
+    # ===== 圖1：收盤價 + MA20 + 布林通道 =====
+    plt.figure(figsize=(12, 6))
+    plt.plot(data.index, data["Close"], label="Close")
+    plt.plot(data.index, data["MA20"], label="MA20")
+    plt.plot(data.index, data["BB_UPPER"], label="BB Upper (20,2)")
+    plt.plot(data.index, data["BB_MID"], label="BB Mid (20)")
+    plt.plot(data.index, data["BB_LOWER"], label="BB Lower (20,2)")
+    plt.fill_between(data.index, data["BB_LOWER"], data["BB_UPPER"], alpha=0.1)
+    plt.title(f"{TICKER} Close + MA20 + Bollinger Bands")
+    plt.xlabel("Date")
+    plt.ylabel("Price")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("price_ma20_bbands.png")
+    plt.close()
+
+    # ===== 圖2：MACD（DIF、DEA、柱狀圖） =====
+    plt.figure(figsize=(12, 4))
+    plt.plot(data.index, data["MACD_DIF"], label="DIF (12,26)")
+    plt.plot(data.index, data["MACD_DEA"], label="DEA/Signal (9)")
+    # 柱狀圖（>0 顯多、<0 顯空）
+    colors = ["#d04a4a" if v >= 0 else "#1f77b4" for v in data["MACD_HIST"]]
+    plt.bar(data.index, data["MACD_HIST"], label="MACD Hist ×2", alpha=0.4, width=1.0, color=colors)
+    plt.title(f"{TICKER} MACD (12,26,9)")
+    plt.xlabel("Date")
+    plt.ylabel("Value")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("macd.png")
+    plt.close()
+
+    # ===== 圖3：上下區塊（價格+布林／MACD） =====
+    fig = plt.figure(figsize=(12, 8))
+    ax1 = fig.add_subplot(2, 1, 1)
+    ax1.plot(data.index, data["Close"], label="Close")
+    ax1.plot(data.index, data["MA20"], label="MA20")
+    ax1.plot(data.index, data["BB_UPPER"], label="BB Upper")
+    ax1.plot(data.index, data["BB_MID"], label="BB Mid")
+    ax1.plot(data.index, data["BB_LOWER"], label="BB Lower")
+    ax1.fill_between(data.index, data["BB_LOWER"], data["BB_UPPER"], alpha=0.1)
+    ax1.set_title(f"{TICKER} Close + MA20 + Bollinger Bands")
+    ax1.set_ylabel("Price")
+    ax1.legend(loc="upper left")
+    ax1.grid(True, alpha=0.3)
+
+    ax2 = fig.add_subplot(2, 1, 2, sharex=ax1)
+    ax2.plot(data.index, data["MACD_DIF"], label="DIF")
+    ax2.plot(data.index, data["MACD_DEA"], label="DEA/Signal")
+    ax2.bar(data.index, data["MACD_HIST"], alpha=0.4, width=1.0)
+    ax2.set_title("MACD (12,26,9)")
+    ax2.set_xlabel("Date")
+    ax2.set_ylabel("Value")
+    ax2.legend(loc="upper left")
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig("price_bbands_macd_combo.png")
+    plt.close()
+
+    print("已輸出圖檔：")
+    print(" - price_ma20_bbands.png")
+    print(" - macd.png")
+    print(" - price_bbands_macd_combo.png")
+
 except Exception as e:
     print("發生錯誤：", e)
+
